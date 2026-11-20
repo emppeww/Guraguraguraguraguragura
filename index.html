@@ -64,11 +64,21 @@
             <option>Max</option>
           </select>
         </div>
+        <p id="wallet"></p>
+        <p id="emptyMarket" hidden>No matching upgrades.</p>
         <div id="catalog"></div>
       </section>
       <section id="Achievements" hidden>
         <h1>Achievement archive</h1>
         <p id="completion"></p>
+        <label
+          >Show badges
+          <select id="badgeFilter">
+            <option value="all">All badges</option>
+            <option value="next">Closest to unlocking</option>
+            <option value="earned">Earned</option>
+          </select></label
+        >
         <div class="grid" id="badges"></div>
       </section>
       <section id="Prestige" hidden>
@@ -76,6 +86,12 @@
         <article>
           <h2 id="crystals"></h2>
           <p id="rebirthInfo"></p>
+          <progress
+            id="crystalProgress"
+            max="1"
+            aria-label="Progress toward next crystal"
+          ></progress>
+          <p id="nextCrystal"></p>
           <button id="rebirth">Begin rebirth</button>
         </article>
         <div class="grid" id="tree"></div>

@@ -80,6 +80,7 @@ const opts = {
   volume: 80,
   cooldown: 380,
   fullSound: false,
+  assist: false,
   intensity: 75,
   particles: 2,
   shake: false,
@@ -234,18 +235,31 @@ for (const slot of [key, "rem-clicker-v1"]) {
 }
 s ??= decode(initial());
 const owned = (id) => s.owned[id] || 0;
+function rateMultiplier(type) {
+  return (
+    (1 + s.memory / 100 + owned("global") * 0.05) *
+    (1 +
+      (s.skills[type === "tap" ? "Focus" : "Roots"] || 0) *
+        (type === "tap" ? 0.2 : 0.15))
+  );
+}
 const rate = (type) =>
   Math.min(
     cap,
     items.reduce(
-      (v, u) => v + (u.effect === type ? u.power * owned(u.id) : 0),
+      (sum, u) => sum + (u.effect === type ? u.power * owned(u.id) : 0),
       type === "tap" ? 1 : 0,
-    ) *
-      (1 + s.memory / 100 + owned("global") * 0.05) *
-      (1 +
-        (s.skills[type === "tap" ? "Focus" : "Roots"] || 0) *
-          (type === "tap" ? 0.2 : 0.15)),
+    ) * rateMultiplier(type),
   );
+function durationLabel(seconds) {
+  if (seconds < 60) return Math.ceil(seconds) + "s";
+  if (seconds < 3600) return Math.ceil(seconds / 60) + " min";
+  return fmt(Math.ceil(seconds / 3600)) + " h";
+}
+const productionFormat = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 2,
+});
 const compact = new Intl.NumberFormat("en", {
   notation: "compact",
   maximumFractionDigits: 1,
@@ -339,7 +353,34 @@ function animate(el, frames) {
     });
   }
 }
+let assistTimer;
+function stopAssist() {
+  clearInterval(assistTimer);
+  assistTimer = undefined;
+  $("tap").removeAttribute("aria-pressed");
+}
+function assistHint() {
+  if (s.settings.assist)
+    $("tap").setAttribute("aria-pressed", String(Boolean(assistTimer)));
+  $("hint").textContent = s.settings.assist
+    ? assistTimer
+      ? "Tap Rem to stop steady tapping"
+      : "Tap Rem to start steady tapping"
+    : "Tap Rem to earn hearts";
+}
 $("tap").onclick = () => {
+  if (!s.settings.assist) {
+    tapRem();
+    return;
+  }
+  if (assistTimer) stopAssist();
+  else {
+    tapRem();
+    assistTimer = setInterval(tapRem, 650);
+  }
+  assistHint();
+};
+function tapRem() {
   const now = clock();
   streak = now - lastTap < 3200 + 250 * owned("combo") ? streak + 1 : 1;
   lastTap = now;
@@ -386,7 +427,7 @@ $("tap").onclick = () => {
     setTimeout(() => el.remove(), 710);
   }
   scheduleHome();
-};
+}
 function quote(u) {
   const count = owned(u.id),
     limit = Math.min(
@@ -467,19 +508,48 @@ for (const group of new Set(items.map((u) => u.group))) {
   }
 }
 function market() {
+  $("wallet").textContent =
+    fmt(s.points) +
+    " hearts available · " +
+    fmt(rate("auto") * mult("auto")) +
+    " per second";
+  let matches = 0;
   for (const { u, b, el, section } of buys) {
     section.hidden =
       (page === "Upgrades") !== (u.group === "Enchantments") ||
       (u.group === "Crystal generators" && !s.skills.Star);
     el.hidden = !u.name.toLowerCase().includes($("search").value.toLowerCase());
-    if (section.hidden || el.hidden || !section.open) continue;
+    if (section.hidden || el.hidden) continue;
+    matches++;
+    if (!section.open) continue;
     const q = quote(u);
     b.disabled = !q.ok;
+    if (u.effect === "auto") {
+      const quantity = q.n || 1;
+      const gain = u.power * quantity * rateMultiplier("auto");
+      const cost = q.n ? q.cost : Math.ceil(u.base * u.scale ** owned(u.id));
+      const description = el.querySelector("p");
+      const info =
+        cost <= cap && owned(u.id) < 10000
+          ? " · Pays back in about " + durationLabel(cost / gain)
+          : "";
+      const detail = "+" + productionFormat.format(gain) + " hearts/sec" + info;
+      if (description.textContent !== detail) description.textContent = detail;
+    }
     b.textContent =
       owned(u.id) +
       " owned · " +
-      (q.n ? "Buy " + q.n + " · " + fmt(q.cost) : "Unavailable");
+      (q.n
+        ? "Buy " + q.n + " · " + fmt(q.cost)
+        : owned(u.id) >= 10000
+          ? "Fully owned"
+          : u.base * u.scale ** owned(u.id) > cap
+            ? "Price limit reached"
+            : "Next costs " +
+              fmt(Math.ceil(u.base * u.scale ** owned(u.id))) +
+              " hearts");
   }
+  $("emptyMarket").hidden = matches > 0;
 }
 $("catalog").addEventListener("toggle", market, true);
 $("search").oninput = $("quantity").onchange = market;
@@ -512,8 +582,19 @@ $("rebirth").onclick = () => {
   ]);
   message("Rebirth complete ✦");
 };
+function crystalPreview() {
+  const n = reward(),
+    target = 1e6 * (n + 1) ** 2;
+  $("crystalProgress").value = Math.min(1, s.run / target);
+  $("nextCrystal").textContent =
+    fmt(Math.max(0, target - s.run)) +
+    " more run hearts for crystal " +
+    fmt(n + 1);
+  $("rebirth").disabled = !n;
+  return n;
+}
 function tree() {
-  const n = reward();
+  const n = crystalPreview();
   $("crystals").textContent = fmt(s.crystals) + " Rem Crystals";
   $("rebirthInfo").textContent =
     "Permanent bonus +" +
@@ -552,6 +633,7 @@ function check() {
     }
   if (first) message("Badge unlocked · " + first);
 }
+$("badgeFilter").onchange = badges;
 function badges() {
   const m = metrics();
   $("badges").replaceChildren();
@@ -562,12 +644,25 @@ function badges() {
     " badges · " +
     Math.floor((100 * Object.keys(s.badges).length) / awards.length) +
     "% complete";
-  for (const a of awards) {
+  const filter = $("badgeFilter").value;
+  const list = awards.filter(
+    (a) =>
+      filter === "all" ||
+      (filter === "earned" ? s.badges[a.id] : !s.badges[a.id]),
+  );
+  if (filter === "next")
+    list.sort((a, b) => m[b.metric] / b.goal - m[a.metric] / a.goal);
+  if (!list.length)
+    $("badges").textContent =
+      filter === "earned"
+        ? "Your first badge unlocks with your first tap."
+        : "Every badge earned!";
+  for (const a of list) {
     const done = s.badges[a.id],
       el = card(
         $("badges"),
         a.title,
-        fmt(Math.min(a.goal, m[a.metric])) +
+        fmt(done ? a.goal : Math.min(a.goal, m[a.metric])) +
           " / " +
           fmt(a.goal) +
           " " +
@@ -760,6 +855,7 @@ function settings() {
     master: "Master volume",
     volume: "Click volume",
     cooldown: "Sound cooldown (ms)",
+    assist: "Tap Rem once to start or stop steady tapping",
     fullSound: "Play full original Goro recording",
     intensity: "Animation intensity",
     particles: "Particle density",
@@ -823,6 +919,8 @@ function settings() {
   }
 }
 function show(name) {
+  stopAssist();
+  assistHint();
   page = name;
   const marketPage = ["Shop", "Upgrades"].includes(name);
   document
@@ -913,7 +1011,8 @@ $("reset").onclick = () => {
     location.reload();
   }
 };
-let lastArchive = 0;
+let lastReward = -1,
+  lastArchive = 0;
 function tick() {
   if (document.hidden) return;
   const now = clock(),
@@ -928,7 +1027,11 @@ function tick() {
   if (page === "Home") drawHome();
   if (["Shop", "Upgrades"].includes(page)) market();
   if (page === "Statistics") stats();
-  if (page === "Prestige") tree();
+  if (page === "Prestige") {
+    if (reward() !== lastReward) tree();
+    else crystalPreview();
+  }
+  lastReward = reward();
   if (page === "Achievements" && clock() - lastArchive > 5000) {
     badges();
     lastArchive = clock();
@@ -937,6 +1040,8 @@ function tick() {
 document.addEventListener("visibilitychange", () => {
   document.body.classList.toggle("paused", document.hidden);
   if (document.hidden) {
+    stopAssist();
+    assistHint();
     save();
     $("voice").pause();
   } else {
