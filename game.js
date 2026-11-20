@@ -79,6 +79,7 @@ const opts = {
   master: 80,
   volume: 80,
   cooldown: 380,
+  fullSound: false,
   intensity: 75,
   particles: 2,
   shake: false,
@@ -314,14 +315,15 @@ function mult(kind) {
 function sound() {
   const now = performance.now();
   if (s.muted || now - lastSound < Math.max(100, s.settings.cooldown)) return;
-  lastSound = now;
   const a = $("voice");
-  clearTimeout(sound.timer);
+  if (!a.paused && !a.ended) return;
+  const src = s.settings.fullSound ? "rem_goro_goro.mp3" : "goro.wav";
+  if (a.getAttribute("src") !== src) a.src = src;
   try {
+    lastSound = now;
     a.currentTime = 0;
     a.volume = (s.settings.master * s.settings.volume) / 10000;
     a.play().catch(() => {});
-    sound.timer = setTimeout(() => a.pause(), 310);
   } catch {}
 }
 function animate(el, frames) {
@@ -758,6 +760,7 @@ function settings() {
     master: "Master volume",
     volume: "Click volume",
     cooldown: "Sound cooldown (ms)",
+    fullSound: "Play full original Goro recording",
     intensity: "Animation intensity",
     particles: "Particle density",
     shake: "Critical screen shake",
