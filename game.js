@@ -115,6 +115,9 @@ const initial = () => ({
   settings: { ...opts },
   badges: {},
   goals: 0,
+  challengeEnd: 0,
+  challengeStart: 0,
+  challengeWins: 0,
   lucky: 0,
 });
 const skills = [
@@ -367,6 +370,7 @@ $("tap").onclick = () => {
     !s.settings.idle &&
     !s.settings.reduced &&
     s.settings.intensity &&
+    s.settings.particles > 0 &&
     $("tap").childElementCount < 2 + s.settings.particles * 2
   ) {
     let el = document.createElement("span");
@@ -379,7 +383,7 @@ $("tap").onclick = () => {
     $("tap").append(el);
     setTimeout(() => el.remove(), 710);
   }
-  drawHome();
+  scheduleHome();
 };
 function quote(u) {
   const count = owned(u.id),
@@ -447,6 +451,14 @@ for (const group of new Set(items.map((u) => u.group))) {
       s.points -= q.cost;
       s.owned[u.id] += q.n;
       s.bought += q.n;
+      for (const milestone of [10, 25, 50, 100, 250, 500, 1000]) {
+        if (owned(u.id) >= milestone && owned(u.id) - q.n < milestone) {
+          earn(u.base * milestone * 0.1);
+          message(
+            u.name + " · " + milestone + " owned! Milestone reward earned.",
+          );
+        }
+      }
       animate(b, [{ opacity: 0.4 }, { opacity: 1 }]);
       market();
     };
@@ -654,7 +666,43 @@ $("daily").onclick = () => {
   message("Daily gift · +" + fmt(n));
   drawHome();
 };
+function updateChallenge() {
+  const target = 20 + Math.min(s.challengeWins, 20);
+  const remaining = Math.max(0, Math.ceil((s.challengeEnd - clock()) / 1000));
+  const progress = s.clicks - s.challengeStart;
+  if (remaining && progress >= target) {
+    s.challengeEnd = 0;
+    s.challengeWins++;
+    const prize = Math.max(100, rate("auto") * 60, rate("tap") * target * 2);
+    earn(prize);
+    message("Garden challenge cleared · +" + fmt(prize));
+    save();
+  }
+  const running = s.challengeEnd > clock();
+  $("challenge").disabled = running;
+  $("challengeInfo").textContent = running
+    ? progress + " / " + target + " taps · " + remaining + "s left"
+    : "Earn a bonus for " + target + " taps in 60 seconds.";
+  $("challenge").textContent = running
+    ? "Challenge in progress"
+    : "Start challenge";
+}
+$("challenge").onclick = () => {
+  if (clock() < s.challengeEnd) return;
+  s.challengeStart = s.clicks;
+  s.challengeEnd = clock() + 60000;
+  updateChallenge();
+};
+let homeFrame = 0;
+function scheduleHome() {
+  if (!homeFrame)
+    homeFrame = requestAnimationFrame(() => {
+      homeFrame = 0;
+      drawHome();
+    });
+}
 function drawHome() {
+  updateChallenge();
   if (clock() - lastTap > 3200 + 250 * owned("combo")) streak = 0;
   $("balance").textContent = fmt(s.points);
   $("rates").textContent =
