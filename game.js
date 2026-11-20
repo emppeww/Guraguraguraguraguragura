@@ -159,6 +159,7 @@ function decode(raw) {
     s.bought = Object.values(s.owned).reduce((a, b) => a + b, 0);
   }
   s.peak = Math.max(s.peak, s.points);
+  s.path = ["tap", "auto"].includes(raw.path) && s.prestige > 0 ? raw.path : "";
   s.muted = raw.muted === true;
   for (const [k, v] of Object.entries(opts)) {
     const val = raw.settings?.[k];
@@ -235,9 +236,10 @@ for (const slot of [key, "rem-clicker-v1"]) {
 }
 s ??= decode(initial());
 const owned = (id) => s.owned[id] || 0;
-function rateMultiplier(type) {
+function rateMultiplier(type, path = s.path, memory = s.memory, global = owned("global")) {
   return (
-    (1 + s.memory / 100 + owned("global") * 0.05) *
+    (type === path ? 1.5 : 1) *
+    (1 + memory / 100 + global * 0.05) *
     (1 +
       (s.skills[type === "tap" ? "Focus" : "Roots"] || 0) *
         (type === "tap" ? 0.2 : 0.15))
@@ -554,6 +556,24 @@ function market() {
 $("catalog").addEventListener("toggle", market, true);
 $("search").oninput = $("quantity").onchange = market;
 const reward = () => Math.floor(Math.sqrt(s.run / 1e6));
+const paths = {tap: "Oni Strength", auto: "Maid Support"};
+const pathLabel = document.createElement("label");
+pathLabel.textContent = "Next run focus ";
+const pathChoice = document.createElement("select");
+for (const [id, name] of Object.entries(paths)) pathChoice.add(new Option(name + (id === "tap" ? " (+50% taps)" : " (+50% generators)"), id));
+pathChoice.value = s.path || "tap";
+pathLabel.append(pathChoice);
+const pathPreview = document.createElement("p");
+$("rebirth").before(pathLabel, pathPreview);
+function previewPath() {
+  const memory = s.memory + 10 * reward() + owned("echo");
+  const tap = rateMultiplier("tap", pathChoice.value, memory, 0);
+  const maid = rateMultiplier("auto", pathChoice.value, memory, 0);
+  pathPreview.textContent = (s.path ? "Current focus: " + paths[s.path] + ". " : "") +
+    "After rebirth: " + productionFormat.format(tap) + " hearts per starting tap. Your first Maid Helper will earn " +
+    productionFormat.format(maid) + " hearts/sec. Choose again at your next rebirth.";
+}
+pathChoice.onchange = previewPath;
 $("rebirth").onclick = () => {
   const n = reward();
   if (
@@ -561,10 +581,11 @@ $("rebirth").onclick = () => {
     !confirm(
       "Exchange this run and its shop upgrades for " +
         fmt(n) +
-        " permanent Rem Crystals?",
+        " permanent Rem Crystals and start the next run with " + paths[pathChoice.value] + "?",
     )
   )
     return;
+  s.path = pathChoice.value;
   s.crystals += n;
   s.memory += 10 * n + owned("echo");
   s.prestige++;
@@ -583,6 +604,7 @@ $("rebirth").onclick = () => {
   message("Rebirth complete ✦");
 };
 function crystalPreview() {
+  previewPath();
   const n = reward(),
     target = 1e6 * (n + 1) ** 2;
   $("crystalProgress").value = Math.min(1, s.run / target);
